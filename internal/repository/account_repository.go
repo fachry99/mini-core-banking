@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/fachry/mini-core-banking/internal/domain"
 
@@ -30,4 +31,23 @@ func (r *AccountRepository) Create(ctx context.Context, account *domain.Account)
 		account.AccountNumber,
 		account.Balance,
 	).Scan(&account.ID, &account.CreatedAt)
+}
+
+func (r *AccountRepository) Deposit(
+	ctx context.Context,
+	accountID string,
+	amount int64,
+) error {
+
+	if amount <= 0 {
+		return errors.New("invalid deposit amount")
+	}
+
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE accounts
+		SET balance = balance + $1
+		WHERE id = $2
+	`, amount, accountID)
+
+	return err
 }
