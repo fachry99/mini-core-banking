@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fachry/mini-core-banking/internal/domain"
+	"github.com/fachry/mini-core-banking/internal/dto"
 	"github.com/fachry/mini-core-banking/internal/repository"
 )
 
@@ -19,10 +20,7 @@ func NewUserHandler(repo *repository.UserRepository) *UserHandler {
 }
 
 func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		FullName string `json:"full_name"`
-		Email    string `json:"email"`
-	}
+	var req dto.CreateUserRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
