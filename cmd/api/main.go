@@ -6,6 +6,7 @@ import (
 
 	"github.com/fachry/mini-core-banking/internal/config"
 	"github.com/fachry/mini-core-banking/internal/handler"
+	"github.com/fachry/mini-core-banking/internal/middleware"
 	"github.com/fachry/mini-core-banking/internal/repository"
 	"github.com/fachry/mini-core-banking/internal/service"
 )
@@ -40,11 +41,17 @@ func main() {
 	)
 
 	// Routes
-	http.HandleFunc("/users", userHandler.CreateUser)
-	http.HandleFunc("/accounts", accountHandler.CreateAccount)
-	http.HandleFunc("/deposit", depositHandler.Deposit)
-	http.HandleFunc("/transfer", transferHandler.Transfer)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/users", userHandler.CreateUser)
+	mux.HandleFunc("/accounts", accountHandler.CreateAccount)
+	mux.HandleFunc("/deposit", depositHandler.Deposit)
+	mux.HandleFunc("/transfer", transferHandler.Transfer)
+
+	// Middleware chain
+	handlerWithMiddleware := middleware.CORSMiddleware(
+		middleware.RequestID(mux),
+	)
 
 	log.Println(cfg.AppName, "running on port", cfg.AppPort)
-	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, nil))
+	log.Fatal(http.ListenAndServe(":"+cfg.AppPort, handlerWithMiddleware))
 }

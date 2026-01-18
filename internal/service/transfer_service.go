@@ -4,9 +4,20 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/fachry/mini-core-banking/internal/audit"
 	"github.com/fachry/mini-core-banking/internal/middleware"
-	"github.com/jmoiron/sqlx"
+)
+
+// =====================
+// DOMAIN ERRORS
+// =====================
+var (
+	ErrSameAccount         = errors.New("cannot transfer to same account")
+	ErrInvalidAmount       = errors.New("invalid transfer amount")
+	ErrAccountNotFound     = errors.New("account not found")
+	ErrInsufficientBalance = errors.New("insufficient balance")
 )
 
 type TransferService struct {
@@ -22,30 +33,54 @@ func (s *TransferService) Transfer(
 	fromAccountID string,
 	toAccountID string,
 	amount int64,
-) error {
+) (err error) {
+
+	requestID, _ := ctx.Value(middleware.RequestIDKey).(string)
+
+	// =====================
+	// 🔍 AUDIT FINALIZER
+	// =====================
+	defer func() {
+		status := "SUCCESS"
+		if err != nil {
+			status = "FAILED"
+		}
+
+		audit.LogTransfer(
+			requestID,
+			fromAccountID,
+			toAccountID,
+			amount,
+			status,
+		)
+	}()
 
 	// =====================
 	// 1️⃣ BASIC VALIDATION
 	// =====================
 	if fromAccountID == toAccountID {
-		return errors.New("cannot transfer to same account")
+		return ErrSameAccount
 	}
 
 	if amount <= 0 {
-		return errors.New("invalid transfer amount")
+		return ErrInvalidAmount
 	}
 
 	tx, err := s.DB.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
 	// =====================
-	// 2️⃣ CONSISTENT LOCK ORDER (ANTI DEADLOCK)
+	// 2️⃣ CONSISTENT LOCK ORDER
 	// =====================
-	firstID := fromAccountID
-	secondID := toAccountID
+	firstID, secondID := fromAccountID, toAccountID
 	if firstID > secondID {
 		firstID, secondID = secondID, firstID
 	}
@@ -77,92 +112,48 @@ func (s *TransferService) Transfer(
 	}
 
 	if len(accounts) != 2 {
-		return errors.New("account not found")
+		return ErrAccountNotFound
 	}
 
 	// =====================
 	// 3️⃣ BUSINESS RULE
 	// =====================
 	if accounts[fromAccountID].Balance < amount {
-		return errors.New("insufficient balance")
+		return ErrInsufficientBalance
 	}
 
 	// =====================
 	// 4️⃣ UPDATE BALANCES
 	// =====================
-	_, err = tx.ExecContext(ctx, `
-		UPDATE accounts
-		SET balance = balance - $1
-		WHERE id = $2
-	`, amount, fromAccountID)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE accounts SET balance = balance - $1 WHERE id = $2
+	`, amount, fromAccountID); err != nil {
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
-		UPDATE accounts
-		SET balance = balance + $1
-		WHERE id = $2
-	`, amount, toAccountID)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE accounts SET balance = balance + $1 WHERE id = $2
+	`, amount, toAccountID); err != nil {
 		return err
 	}
 
 	// =====================
 	// 5️⃣ TRANSACTION LOG
 	// =====================
-	_, err = tx.ExecContext(ctx, `
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO transactions
 		(from_account_id, to_account_id, amount, type)
 		VALUES ($1, $2, $3, 'TRANSFER')
-	`, fromAccountID, toAccountID, amount)
-	if err != nil {
+	`, fromAccountID, toAccountID, amount); err != nil {
 		return err
 	}
 
 	// =====================
 	// 6️⃣ COMMIT
 	// =====================
-	if err := tx.Commit(); err != nil {
-		// 🔴 commit gagal → FAILED
-		requestID, _ := ctx.Value(middleware.RequestIDKey).(string)
-
-		audit.LogTransfer(
-			requestID,
-			fromAccountID,
-			toAccountID,
-			amount,
-			"FAILED_COMMIT",
-		)
-
+	if err = tx.Commit(); err != nil {
 		return err
 	}
 
-	// 🟢 commit sukses → SUCCESS
-	requestID, _ := ctx.Value(middleware.RequestIDKey).(string)
-
-	audit.LogTransfer(
-		requestID,
-		fromAccountID,
-		toAccountID,
-		amount,
-		"SUCCESS",
-	)
-
-	if accounts[fromAccountID].Balance < amount {
-		requestID, _ := ctx.Value(middleware.RequestIDKey).(string)
-
-		audit.LogTransfer(
-			requestID,
-			fromAccountID,
-			toAccountID,
-			amount,
-			"FAILED_INSUFFICIENT_BALANCE",
-		)
-
-		return errors.New("insufficient balance")
-	}
-
 	return nil
-
 }
