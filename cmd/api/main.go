@@ -25,6 +25,7 @@ func main() {
 	// Repository
 	userRepo := repository.NewUserRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
 
 	// Service
 	transferService := service.NewTransferService(db)
@@ -33,7 +34,10 @@ func main() {
 	userHandler := handler.NewUserHandler(userRepo)
 	accountHandler := handler.NewAccountHandler(accountRepo)
 	depositHandler := handler.NewDepositHandler(accountRepo)
-	transferHandler := handler.NewTransferHandler(transferService)
+	transferHandler := handler.NewTransferHandler(
+		transferService,
+		idempotencyRepo,
+	)
 
 	// Routes
 	http.HandleFunc("/users", userHandler.CreateUser)
