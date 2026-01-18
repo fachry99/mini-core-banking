@@ -1,15 +1,15 @@
 package dto
 
-import "time"
+import "errors"
 
 type CreateAccountRequest struct {
-	UserID  string  `json:"user_id"`
-	Balance float64 `json:"balance"`
+	UserID        string `json:"user_id"`
+	AccountNumber string `json:"account_number"`
 }
 
-type AccountResponse struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Balance   float64   `json:"balance"`
-	CreatedAt time.Time `json:"created_at"`
+func (r *CreateAccountRequest) Validate() error {
+	if r.UserID == "" || r.AccountNumber == "" {
+		return errors.New("user_id and account_number are required")
+	}
+	return nil
 }
