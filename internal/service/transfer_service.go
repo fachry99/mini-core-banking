@@ -8,6 +8,7 @@ import (
 
 	"github.com/fachry/mini-core-banking/internal/audit"
 	"github.com/fachry/mini-core-banking/internal/middleware"
+	"github.com/fachry/mini-core-banking/internal/worker"
 )
 
 // =====================
@@ -21,11 +22,18 @@ var (
 )
 
 type TransferService struct {
-	DB *sqlx.DB
+	db          *sqlx.DB
+	auditWorker *worker.AuditWorker
 }
 
-func NewTransferService(db *sqlx.DB) *TransferService {
-	return &TransferService{DB: db}
+func NewTransferService(
+	db *sqlx.DB,
+	auditWorker *worker.AuditWorker,
+) *TransferService {
+	return &TransferService{
+		db:          db,
+		auditWorker: auditWorker,
+	}
 }
 
 func (s *TransferService) Transfer(
@@ -66,7 +74,7 @@ func (s *TransferService) Transfer(
 		return ErrInvalidAmount
 	}
 
-	tx, err := s.DB.BeginTxx(ctx, nil)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
